@@ -21,12 +21,10 @@ package badger
 
 import (
 	"fmt"
-	"path"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/metrics"
 
 	badger "github.com/dgraph-io/badger/v3"
 )
@@ -36,19 +34,6 @@ import (
 // binary-alphabetical order.
 type Database struct {
 	db *badger.DB // Badger instance
-
-	compTimeMeter      metrics.Meter // Meter for measuring the total time spent in database compaction
-	compReadMeter      metrics.Meter // Meter for measuring the data read during compaction
-	compWriteMeter     metrics.Meter // Meter for measuring the data written during compaction
-	writeDelayNMeter   metrics.Meter // Meter for measuring the write delay number due to database compaction
-	writeDelayMeter    metrics.Meter // Meter for measuring the write delay duration due to database compaction
-	diskSizeGauge      metrics.Gauge // Gauge for tracking the size of all the levels in the database
-	diskReadMeter      metrics.Meter // Meter for measuring the effective amount of data read
-	diskWriteMeter     metrics.Meter // Meter for measuring the effective amount of data written
-	memCompGauge       metrics.Gauge // Gauge for tracking the number of memory compaction
-	level0CompGauge    metrics.Gauge // Gauge for tracking the number of table compaction in level0
-	nonlevel0CompGauge metrics.Gauge // Gauge for tracking the number of table compaction in non0 level
-	seekCompGauge      metrics.Gauge // Gauge for tracking the number of table compaction caused by read opt
 
 	quitLock sync.Mutex      // Mutex protecting the quit channel access
 	quitChan chan chan error // Quit channel to stop the metrics collection before closing the database
@@ -60,14 +45,12 @@ type Database struct {
 // metrics reporting should use for surfacing internal stats.
 func New(file string, namespace string, readonly bool) (*Database, error) {
 	// TODO: more custom options
-	dir := path.Join(file, "db")
-	valueDir := path.Join(file, "value-db")
-	opts := badger.DefaultOptions(file).WithDir(dir).WithValueDir(valueDir)
+	opts := badger.DefaultOptions(file)
 	if readonly {
 		opts = opts.WithReadOnly(true)
 	}
 	logger := log.New("database", "badgerdb")
-	logCtx := []interface{}{"dir", dir, "valueDir", valueDir}
+	logCtx := []interface{}{"path", file}
 	if opts.ReadOnly {
 		logCtx = append(logCtx, "readonly", "true")
 	}
@@ -84,18 +67,6 @@ func New(file string, namespace string, readonly bool) (*Database, error) {
 		log:      logger,
 		quitChan: make(chan chan error),
 	}
-	bdb.compTimeMeter = metrics.NewRegisteredMeter(namespace+"compact/time", nil)
-	bdb.compReadMeter = metrics.NewRegisteredMeter(namespace+"compact/input", nil)
-	bdb.compWriteMeter = metrics.NewRegisteredMeter(namespace+"compact/output", nil)
-	bdb.diskSizeGauge = metrics.NewRegisteredGauge(namespace+"disk/size", nil)
-	bdb.diskReadMeter = metrics.NewRegisteredMeter(namespace+"disk/read", nil)
-	bdb.diskWriteMeter = metrics.NewRegisteredMeter(namespace+"disk/write", nil)
-	bdb.writeDelayMeter = metrics.NewRegisteredMeter(namespace+"compact/writedelay/duration", nil)
-	bdb.writeDelayNMeter = metrics.NewRegisteredMeter(namespace+"compact/writedelay/counter", nil)
-	bdb.memCompGauge = metrics.NewRegisteredGauge(namespace+"compact/memory", nil)
-	bdb.level0CompGauge = metrics.NewRegisteredGauge(namespace+"compact/level0", nil)
-	bdb.nonlevel0CompGauge = metrics.NewRegisteredGauge(namespace+"compact/nonlevel0", nil)
-	bdb.seekCompGauge = metrics.NewRegisteredGauge(namespace+"compact/seek", nil)
 
 	return bdb, nil
 }
@@ -200,26 +171,9 @@ func (db *Database) NewIterator(prefix []byte, start []byte) ethdb.Iterator {
 	return &iterator{iter: iter}
 }
 
-// Stat returns a particular internal stat of the database.
-func (db *Database) Stat(property string) (string, error) {
-	return "", nil
-}
-
-// Compact flattens the underlying data store for the given key range. In essence,
-// deleted and overwritten versions are discarded, and the data is rearranged to
-// reduce the cost of operations needed to access them.
-//
-// A nil start is treated as a key before all keys in the data store; a nil limit
-// is treated as a key after all keys in the data store. If both is nil then it
-// will compact entire data store.
-func (db *Database) Compact(start []byte, limit []byte) error {
-	return nil
-}
-
-// Path returns the path to the database directory.
-func (db *Database) Path() string {
-	return ""
-}
+// TODO: fetch badger's inner stats
+func (db *Database) Stat(property string) (string, error)     { return "", nil }
+func (db *Database) Compact(start []byte, limit []byte) error { return nil }
 
 // stole from leveldb
 type keyType uint
@@ -286,6 +240,7 @@ func (b *batch) ValueSize() int {
 }
 
 // Write flushes any accumulated data to disk.
+// after Flush, the db.txn is Discard and a new WriteBatch is needed.
 func (b *batch) Write() error {
 	err := b.wb.Flush()
 	b.wb = b.db.db.NewWriteBatch()
