@@ -26,7 +26,6 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
-	"github.com/syndtr/goleveldb/leveldb/util"
 
 	badger "github.com/dgraph-io/badger/v3"
 )
@@ -159,38 +158,42 @@ func (db *Database) Delete(key []byte) error {
 }
 
 type iterator struct {
-	txn  *badger.Txn
 	iter *badger.Iterator
+	err  error
 }
 
 func (i *iterator) Next() bool {
-	return true
+	i.iter.Next()
+	return i.iter.Valid()
 }
 func (i *iterator) Error() error {
-	return nil
+	return i.err
 }
 func (i *iterator) Key() []byte {
-	return nil
+	item := i.iter.Item()
+	return item.KeyCopy(nil)
 }
 func (i *iterator) Value() []byte {
-	return nil
+	item := i.iter.Item()
+	data, err := item.ValueCopy(nil)
+	if err != nil {
+		i.err = err
+		log.Error("iterator ValueCopy error", "error", err)
+	}
+	return data
 }
 func (i *iterator) Release() {
+	i.iter.Close()
 }
 
 // NewIterator creates a binary-alphabetical iterator over a subset
 // of database content with a particular key prefix, starting at a particular
 // initial key (or after, if it does not exist).
 func (db *Database) NewIterator(prefix []byte, start []byte) ethdb.Iterator {
-	txn := db.db.NewTransaction(false)
 	iopt := badger.DefaultIteratorOptions
-	iopt.AllVersions = true
-	iopt.InternalAccess = true
-	iter := txn.NewIterator(iopt)
-	return &iterator{
-		txn:  txn,
-		iter: iter,
-	}
+	iopt.Prefix = append(prefix, start...)
+	iter := db.db.NewTransaction(false).NewIterator(iopt)
+	return &iterator{iter: iter}
 }
 
 // Stat returns a particular internal stat of the database.
@@ -240,7 +243,7 @@ type keyvalue struct {
 	keyType keyType
 }
 
-// batch is a write-only leveldb batch that commits changes to its host database
+// batch is a write-only Badger batch that commits changes to its host database
 // when Write is called. A batch cannot be used concurrently.
 type batch struct {
 	wb     *badger.WriteBatch
@@ -252,7 +255,7 @@ type batch struct {
 // database until a final write is called.
 func (db *Database) NewBatch() ethdb.Batch {
 	wb := db.db.NewWriteBatch()
-	wb.SetMaxPendingTxns(64)
+	wb.SetMaxPendingTxns(128)
 	return &batch{wb: wb}
 }
 
@@ -328,13 +331,4 @@ func (r *replayer) Delete(key []byte) {
 		return
 	}
 	r.failure = r.writer.Delete(key)
-}
-
-// bytesPrefixRange returns key range that satisfy
-// - the given prefix, and
-// - the given seek position
-func bytesPrefixRange(prefix, start []byte) *util.Range {
-	r := util.BytesPrefix(prefix)
-	r.Start = append(r.Start, start...)
-	return r
 }
