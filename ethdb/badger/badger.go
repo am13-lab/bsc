@@ -24,7 +24,6 @@ import (
 	"path"
 	"sync"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
@@ -124,7 +123,6 @@ func (db *Database) Close() error {
 
 // Has retrieves if a key is present in the key-value store.
 func (db *Database) Has(key []byte) (bool, error) {
-	db.log.Info("Has key", "key", common.Bytes2Hex(key))
 	found := false
 	err := db.db.View(func(txn *badger.Txn) error {
 		_, err := txn.Get(key)
@@ -138,7 +136,6 @@ func (db *Database) Has(key []byte) (bool, error) {
 
 // Get retrieves the given key if it's present in the key-value store.
 func (db *Database) Get(key []byte) ([]byte, error) {
-	db.log.Info("Get key", "hash", common.Bytes2Hex(key))
 	var dat []byte
 	err := db.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(key)
@@ -153,7 +150,6 @@ func (db *Database) Get(key []byte) ([]byte, error) {
 
 // Put inserts the given value into the key-value store.
 func (db *Database) Put(key []byte, value []byte) error {
-	db.log.Info("Put key", "key", common.Bytes2Hex(key))
 	return db.db.Update(func(txn *badger.Txn) error {
 		return txn.Set(key, value)
 	})
@@ -161,7 +157,6 @@ func (db *Database) Put(key []byte, value []byte) error {
 
 // Delete removes the key from the key-value store.
 func (db *Database) Delete(key []byte) error {
-	db.log.Info("Del key", "key", common.Bytes2Hex(key))
 	return db.db.Update(func(txn *badger.Txn) error {
 		return txn.Delete(key)
 	})
@@ -203,6 +198,7 @@ func (db *Database) NewIterator(prefix []byte, start []byte) ethdb.Iterator {
 	iopt := badger.DefaultIteratorOptions
 	iopt.Prefix = append(prefix, start...)
 	iter := db.db.NewTransaction(false).NewIterator(iopt)
+	iter.Rewind()
 	return &iterator{iter: iter}
 }
 
@@ -265,7 +261,6 @@ type batch struct {
 // NewBatch creates a write-only key-value store that buffers changes to its host
 // database until a final write is called.
 func (db *Database) NewBatch() ethdb.Batch {
-	db.log.Info("new batch")
 	wb := db.db.NewWriteBatch()
 	wb.SetMaxPendingTxns(128)
 	return &batch{db: db, wb: wb}
@@ -273,7 +268,6 @@ func (db *Database) NewBatch() ethdb.Batch {
 
 // Put inserts the given value into the batch for later committing.
 func (b *batch) Put(key, value []byte) error {
-	b.db.log.Info("batch put", "key", common.Bytes2Hex(key))
 	err := b.wb.Set(key, value)
 	b.size += len(value)
 	b.writes = append(b.writes, keyvalue{key, value, keyTypeVal})
@@ -282,7 +276,6 @@ func (b *batch) Put(key, value []byte) error {
 
 // Delete inserts the a key removal into the batch for later committing.
 func (b *batch) Delete(key []byte) error {
-	b.db.log.Info("batch del", "key", common.Bytes2Hex(key))
 	err := b.wb.Delete(key)
 	b.size += len(key)
 	b.writes = append(b.writes, keyvalue{key, nil, keyTypeDel})
@@ -296,7 +289,6 @@ func (b *batch) ValueSize() int {
 
 // Write flushes any accumulated data to disk.
 func (b *batch) Write() error {
-	b.db.log.Info("batch write")
 	err := b.wb.Flush()
 	b.wb = b.db.db.NewWriteBatch()
 	b.wb.SetMaxPendingTxns(128)
@@ -305,7 +297,6 @@ func (b *batch) Write() error {
 
 // Reset resets the batch for reuse.
 func (b *batch) Reset() {
-	b.db.log.Info("batch reset")
 	b.wb.Cancel()
 	b.wb = b.db.db.NewWriteBatch()
 	b.wb.SetMaxPendingTxns(128)
