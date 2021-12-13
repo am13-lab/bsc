@@ -35,7 +35,6 @@ import (
 // functionality it also supports batch writes and iterating over the keyspace in
 // binary-alphabetical order.
 type Database struct {
-	fn string     // filename for reporting
 	db *badger.DB // Badger instance
 
 	compTimeMeter      metrics.Meter // Meter for measuring the total time spent in database compaction
@@ -81,7 +80,6 @@ func New(file string, namespace string, readonly bool) (*Database, error) {
 	}
 	// Assemble the wrapper with all the registered metrics
 	bdb := &Database{
-		fn:       file,
 		db:       db,
 		log:      logger,
 		quitChan: make(chan chan error),
@@ -220,7 +218,7 @@ func (db *Database) Compact(start []byte, limit []byte) error {
 
 // Path returns the path to the database directory.
 func (db *Database) Path() string {
-	return db.fn
+	return ""
 }
 
 // stole from leveldb
