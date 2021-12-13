@@ -22,11 +22,17 @@ package badger
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 
 	badger "github.com/dgraph-io/badger/v3"
+)
+
+const (
+	// metricsGCInterval specifies the interval to retrieve badger database run GC
+	metricsGCInterval = 5 * time.Minute
 )
 
 // Database is a persistent key-value store. Apart from basic data storage
@@ -68,6 +74,8 @@ func New(file string, namespace string, readonly bool) (*Database, error) {
 		quitChan: make(chan chan error),
 	}
 
+	go bdb.runGC(metricsGCInterval)
+
 	return bdb, nil
 }
 
@@ -78,15 +86,14 @@ func (db *Database) Close() error {
 	db.quitLock.Lock()
 	defer db.quitLock.Unlock()
 
-	// FIXME:
-	// if db.quitChan != nil {
-	// 	errc := make(chan error)
-	// 	db.quitChan <- errc
-	// 	if err := <-errc; err != nil {
-	// 		db.log.Error("Metrics collection failed", "err", err)
-	// 	}
-	// 	db.quitChan = nil
-	// }
+	if db.quitChan != nil {
+		errc := make(chan error)
+		db.quitChan <- errc
+		if err := <-errc; err != nil {
+			db.log.Error("GC failed", "err", err)
+		}
+		db.quitChan = nil
+	}
 	return db.db.Close()
 }
 
@@ -174,6 +181,40 @@ func (db *Database) NewIterator(prefix []byte, start []byte) ethdb.Iterator {
 // TODO: fetch badger's inner stats
 func (db *Database) Stat(property string) (string, error)     { return "", nil }
 func (db *Database) Compact(start []byte, limit []byte) error { return nil }
+
+// runGC is a goroutine that runs Badger ValueGC in long-running
+func (db *Database) runGC(interval time.Duration) {
+	var (
+		errc chan error
+		ierr error
+	)
+
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+
+	for errc == nil && ierr == nil {
+		lsm, vlog := db.db.Size()
+		db.log.Info("Badger Size", "LSM", lsm, "VLOG", vlog)
+		if lsm > 1024*1024*8 || vlog > 1024*1024*32 {
+			ierr = db.db.RunValueLogGC(0.5)
+			log.Info("Badger RunValueLogGC", "error", ierr)
+		}
+
+		// Sleep a bit, then repeat the stats collection
+		select {
+		case errc = <-db.quitChan:
+			// Quit requesting, stop hammering the database
+		case <-timer.C:
+			timer.Reset(interval)
+			// Timeout, gather a new set of stats
+		}
+	}
+
+	if errc == nil {
+		errc = <-db.quitChan
+	}
+	errc <- ierr
+}
 
 // stole from leveldb
 type keyType uint
