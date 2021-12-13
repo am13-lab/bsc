@@ -21,6 +21,7 @@ package badger
 
 import (
 	"fmt"
+	"path"
 	"sync"
 	"time"
 
@@ -51,7 +52,9 @@ type Database struct {
 // metrics reporting should use for surfacing internal stats.
 func New(file string, namespace string, readonly bool) (*Database, error) {
 	// TODO: more custom options
-	opts := badger.DefaultOptions(file)
+	dir := path.Join(file, "db")
+	valueDir := path.Join(file, "value-db")
+	opts := badger.DefaultOptions(file).WithDir(dir).WithValueDir(valueDir)
 	if readonly {
 		opts = opts.WithReadOnly(true)
 	}
