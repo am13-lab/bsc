@@ -21,8 +21,10 @@ package badger
 
 import (
 	"fmt"
+	"path"
 	"sync"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
@@ -60,16 +62,18 @@ type Database struct {
 // metrics reporting should use for surfacing internal stats.
 func New(file string, namespace string, readonly bool) (*Database, error) {
 	// TODO: more custom options
-	opts := badger.DefaultOptions(file)
+	dir := path.Join(file, "db")
+	valueDir := path.Join(file, "value-db")
+	opts := badger.DefaultOptions(file).WithDir(dir).WithValueDir(valueDir)
 	if readonly {
 		opts = opts.WithReadOnly(true)
 	}
-	logger := log.New("database", file)
-	logCtx := []interface{}{"path", file}
+	logger := log.New("database", "badgerdb")
+	logCtx := []interface{}{"dir", dir, "valueDir", valueDir}
 	if opts.ReadOnly {
 		logCtx = append(logCtx, "readonly", "true")
 	}
-	logger.Info("Allocated cache and file handles", logCtx...)
+	logger.Info("Allocated BadgerDB", logCtx...)
 
 	// Open the db and recover any potential corruptions
 	db, err := badger.Open(opts)
@@ -102,6 +106,7 @@ func New(file string, namespace string, readonly bool) (*Database, error) {
 // Close stops the metrics collection, flushes any pending data to disk and closes
 // all io accesses to the underlying key-value store.
 func (db *Database) Close() error {
+	db.log.Info("Close database")
 	db.quitLock.Lock()
 	defer db.quitLock.Unlock()
 
@@ -118,6 +123,7 @@ func (db *Database) Close() error {
 
 // Has retrieves if a key is present in the key-value store.
 func (db *Database) Has(key []byte) (bool, error) {
+	db.log.Info("Has key", "key", common.Bytes2Hex(key))
 	found := false
 	err := db.db.View(func(txn *badger.Txn) error {
 		_, err := txn.Get(key)
@@ -131,6 +137,7 @@ func (db *Database) Has(key []byte) (bool, error) {
 
 // Get retrieves the given key if it's present in the key-value store.
 func (db *Database) Get(key []byte) ([]byte, error) {
+	db.log.Info("Get key", "hash", common.Bytes2Hex(key))
 	var dat []byte
 	err := db.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(key)
@@ -145,6 +152,7 @@ func (db *Database) Get(key []byte) ([]byte, error) {
 
 // Put inserts the given value into the key-value store.
 func (db *Database) Put(key []byte, value []byte) error {
+	db.log.Info("Put key", "key", common.Bytes2Hex(key))
 	return db.db.Update(func(txn *badger.Txn) error {
 		return txn.Set(key, value)
 	})
@@ -152,6 +160,7 @@ func (db *Database) Put(key []byte, value []byte) error {
 
 // Delete removes the key from the key-value store.
 func (db *Database) Delete(key []byte) error {
+	db.log.Info("Del key", "key", common.Bytes2Hex(key))
 	return db.db.Update(func(txn *badger.Txn) error {
 		return txn.Delete(key)
 	})
@@ -246,6 +255,7 @@ type keyvalue struct {
 // batch is a write-only Badger batch that commits changes to its host database
 // when Write is called. A batch cannot be used concurrently.
 type batch struct {
+	db     *Database
 	wb     *badger.WriteBatch
 	writes []keyvalue
 	size   int
@@ -254,13 +264,15 @@ type batch struct {
 // NewBatch creates a write-only key-value store that buffers changes to its host
 // database until a final write is called.
 func (db *Database) NewBatch() ethdb.Batch {
+	db.log.Info("new batch")
 	wb := db.db.NewWriteBatch()
 	wb.SetMaxPendingTxns(128)
-	return &batch{wb: wb}
+	return &batch{db: db, wb: wb}
 }
 
 // Put inserts the given value into the batch for later committing.
 func (b *batch) Put(key, value []byte) error {
+	b.db.log.Info("batch put", "key", common.Bytes2Hex(key))
 	err := b.wb.Set(key, value)
 	b.size += len(value)
 	b.writes = append(b.writes, keyvalue{key, value, keyTypeVal})
@@ -269,6 +281,7 @@ func (b *batch) Put(key, value []byte) error {
 
 // Delete inserts the a key removal into the batch for later committing.
 func (b *batch) Delete(key []byte) error {
+	b.db.log.Info("batch del", "key", common.Bytes2Hex(key))
 	err := b.wb.Delete(key)
 	b.size += len(key)
 	b.writes = append(b.writes, keyvalue{key, nil, keyTypeDel})
@@ -282,12 +295,19 @@ func (b *batch) ValueSize() int {
 
 // Write flushes any accumulated data to disk.
 func (b *batch) Write() error {
-	return b.wb.Flush()
+	b.db.log.Info("batch write")
+	err := b.wb.Flush()
+	b.wb = b.db.db.NewWriteBatch()
+	b.wb.SetMaxPendingTxns(128)
+	return err
 }
 
 // Reset resets the batch for reuse.
 func (b *batch) Reset() {
+	b.db.log.Info("batch reset")
 	b.wb.Cancel()
+	b.wb = b.db.db.NewWriteBatch()
+	b.wb.SetMaxPendingTxns(128)
 	b.writes = b.writes[:0]
 	b.size = 0
 }
