@@ -20,8 +20,8 @@
 package badger
 
 import (
+	"fmt"
 	"sync"
-	"time"
 
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
@@ -29,24 +29,6 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/util"
 
 	badger "github.com/dgraph-io/badger/v3"
-)
-
-const (
-	// degradationWarnInterval specifies how often warning should be printed if the
-	// leveldb database cannot keep up with requested writes.
-	degradationWarnInterval = time.Minute
-
-	// minCache is the minimum amount of memory in megabytes to allocate to leveldb
-	// read and write caching, split half and half.
-	minCache = 16
-
-	// minHandles is the minimum number of files handles to allocate to the open
-	// database files.
-	minHandles = 16
-
-	// metricsGatheringInterval specifies the interval to retrieve leveldb database
-	// compaction, io and pause stats to report to the user.
-	metricsGatheringInterval = 3 * time.Second
 )
 
 // Database is a persistent key-value store. Apart from basic data storage
@@ -176,15 +158,6 @@ func (db *Database) Delete(key []byte) error {
 	})
 }
 
-// NewBatch creates a write-only key-value store that buffers changes to its host
-// database until a final write is called.
-func (db *Database) NewBatch() ethdb.Batch {
-	return &batch{
-		db: db.db,
-		b:  db.db.NewWriteBatch(),
-	}
-}
-
 type iterator struct {
 	txn  *badger.Txn
 	iter *badger.Iterator
@@ -241,26 +214,62 @@ func (db *Database) Path() string {
 	return db.fn
 }
 
+// stole from leveldb
+type keyType uint
+
+func (kt keyType) String() string {
+	switch kt {
+	case keyTypeDel:
+		return "d"
+	case keyTypeVal:
+		return "v"
+	}
+	return fmt.Sprintf("<invalid:%#x>", uint(kt))
+}
+
+// Value types encoded as the last component of internal keys.
+// Don't modify; this value are saved to disk.
+const (
+	keyTypeDel = keyType(0)
+	keyTypeVal = keyType(1)
+)
+
+type keyvalue struct {
+	key     []byte
+	value   []byte
+	keyType keyType
+}
+
 // batch is a write-only leveldb batch that commits changes to its host database
 // when Write is called. A batch cannot be used concurrently.
 type batch struct {
-	db   *badger.DB
-	b    *badger.WriteBatch
-	size int
+	wb     *badger.WriteBatch
+	writes []keyvalue
+	size   int
+}
+
+// NewBatch creates a write-only key-value store that buffers changes to its host
+// database until a final write is called.
+func (db *Database) NewBatch() ethdb.Batch {
+	wb := db.db.NewWriteBatch()
+	wb.SetMaxPendingTxns(64)
+	return &batch{wb: wb}
 }
 
 // Put inserts the given value into the batch for later committing.
 func (b *batch) Put(key, value []byte) error {
-	b.b.Put(key, value)
+	err := b.wb.Set(key, value)
 	b.size += len(value)
-	return nil
+	b.writes = append(b.writes, keyvalue{key, value, keyTypeVal})
+	return err
 }
 
 // Delete inserts the a key removal into the batch for later committing.
 func (b *batch) Delete(key []byte) error {
-	b.b.Delete(key)
+	err := b.wb.Delete(key)
 	b.size += len(key)
-	return nil
+	b.writes = append(b.writes, keyvalue{key, nil, keyTypeDel})
+	return err
 }
 
 // ValueSize retrieves the amount of data queued up for writing.
@@ -270,18 +279,31 @@ func (b *batch) ValueSize() int {
 
 // Write flushes any accumulated data to disk.
 func (b *batch) Write() error {
-	return b.db.Write(b.b, nil)
+	return b.wb.Flush()
 }
 
 // Reset resets the batch for reuse.
 func (b *batch) Reset() {
-	b.b.Reset()
+	b.wb.Cancel()
+	b.writes = b.writes[:0]
 	b.size = 0
 }
 
 // Replay replays the batch contents.
 func (b *batch) Replay(w ethdb.KeyValueWriter) error {
-	return b.b.Replay(&replayer{writer: w})
+	var err error
+	for _, keyvalue := range b.writes {
+		switch keyvalue.keyType {
+		case keyTypeVal:
+			err = w.Put(keyvalue.key, keyvalue.value)
+		case keyTypeDel:
+			err = w.Delete(keyvalue.key)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // replayer is a small wrapper to implement the correct replay methods.
