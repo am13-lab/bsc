@@ -255,6 +255,22 @@ func NewTiKVDatabase(pdUrls string) (ethdb.Database, error) {
 	return NewDatabase(db), nil
 }
 
+// NewTiKVDatabaseWithFreezer creates a distributed TiKV database with a
+// freezer moving immutable chain segments into cold storage.
+func NewTiKVDatabaseWithFreezer(pdUrls string, freezer, namespace string, readonly bool) (ethdb.Database, error) {
+	kvdb, err := tikv.New(pdUrls)
+	if err != nil {
+		return nil, err
+	}
+
+	frdb, err := NewDatabaseWithFreezer(kvdb, freezer, namespace, readonly)
+	if err != nil {
+		kvdb.Close()
+		return nil, err
+	}
+	return frdb, nil
+}
+
 // NewLevelDBDatabase creates a persistent key-value database without a freezer
 // moving immutable chain segments into cold storage.
 func NewLevelDBDatabase(file string, cache int, handles int, namespace string, readonly bool) (ethdb.Database, error) {
