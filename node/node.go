@@ -571,6 +571,8 @@ func (n *Node) OpenDatabase(name string, cache, handles int, namespace string, r
 	var err error
 	if n.config.DataDir == "" {
 		db = rawdb.NewMemoryDatabase()
+	} else if n.config.DBEngine == "tikv" && name == "chaindata" { // currently we only store the main chaindata into TiKV
+		db, err = rawdb.NewTiKVDatabase(n.config.TikvPD)
 	} else {
 		db, err = rawdb.NewLevelDBDatabase(n.ResolvePath(name), cache, handles, namespace, readonly)
 	}
@@ -617,6 +619,8 @@ func (n *Node) OpenDatabaseWithFreezer(name string, cache, handles int, freezer,
 	var err error
 	if n.config.DataDir == "" {
 		db = rawdb.NewMemoryDatabase()
+	} else if n.config.DBEngine == "tikv" && name == "chaindata" { // currently we only store the main chaindata into TiKV
+		db, err = rawdb.NewTiKVDatabase(n.config.TikvPD)
 	} else {
 		root := n.ResolvePath(name)
 		switch {
