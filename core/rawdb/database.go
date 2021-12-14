@@ -26,12 +26,12 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/ethdb/badger"
+	"github.com/ethereum/go-ethereum/ethdb/leveldb"
 	"github.com/ethereum/go-ethereum/ethdb/memorydb"
 	"github.com/ethereum/go-ethereum/ethdb/tikv"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/olekukonko/tablewriter"
-
-	_ "github.com/ethereum/go-ethereum/ethdb/leveldb"
 )
 
 // freezerdb is a database wrapper that enabled freezer data retrievals.
@@ -246,12 +246,29 @@ func NewMemoryDatabaseWithCap(size int) ethdb.Database {
 	return NewDatabase(memorydb.NewWithCap(size))
 }
 
+// NewTiKVDatabase creates a distributed KV store based on TiKV
+func NewTiKVDatabase(pdUrls string) (ethdb.Database, error) {
+	db, err := tikv.New(pdUrls)
+	if err != nil {
+		return nil, err
+	}
+	return NewDatabase(db), nil
+}
+
 // NewLevelDBDatabase creates a persistent key-value database without a freezer
 // moving immutable chain segments into cold storage.
 func NewLevelDBDatabase(file string, cache int, handles int, namespace string, readonly bool) (ethdb.Database, error) {
-	// db, err := leveldb.New(file, cache, handles, namespace, readonly)
-	// db, err := badger.New(file, namespace, readonly)
-	db, err := tikv.New(file, namespace, readonly)
+	db, err := leveldb.New(file, cache, handles, namespace, readonly)
+	if err != nil {
+		return nil, err
+	}
+	return NewDatabase(db), nil
+}
+
+// NewBadgerDatabase creates a persistent key-value database without a freezer
+// moving immutable chain segments into cold storage.
+func NewBadgerDatabase(file string, namespace string, readonly bool) (ethdb.Database, error) {
+	db, err := badger.New(file, namespace, readonly)
 	if err != nil {
 		return nil, err
 	}
@@ -261,8 +278,7 @@ func NewLevelDBDatabase(file string, cache int, handles int, namespace string, r
 // NewLevelDBDatabaseWithFreezer creates a persistent key-value database with a
 // freezer moving immutable chain segments into cold storage.
 func NewLevelDBDatabaseWithFreezer(file string, cache int, handles int, freezer string, namespace string, readonly bool) (ethdb.Database, error) {
-	// kvdb, err := badger.New(file, namespace, readonly)
-	kvdb, err := tikv.New(file, namespace, readonly)
+	kvdb, err := leveldb.New(file, cache, handles, namespace, readonly)
 	if err != nil {
 		return nil, err
 	}
