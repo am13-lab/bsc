@@ -77,7 +77,7 @@ func New(file string, namespace string, readonly bool) (*Database, error) {
 		quitChan: make(chan chan error),
 	}
 
-	go bdb.runGC(metricsGCInterval)
+	// go bdb.runGC(metricsGCInterval)
 
 	return bdb, nil
 }
@@ -175,6 +175,7 @@ func (i *iterator) Release() {
 // initial key (or after, if it does not exist).
 func (db *Database) NewIterator(prefix []byte, start []byte) ethdb.Iterator {
 	iopt := badger.DefaultIteratorOptions
+	iopt.PrefetchSize = 2
 	iopt.Prefix = append(prefix, start...)
 	iter := db.db.NewTransaction(false).NewIterator(iopt)
 	iter.Rewind()
