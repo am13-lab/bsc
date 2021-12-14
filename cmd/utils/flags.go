@@ -113,10 +113,15 @@ var (
 		Usage: "Data directory for the databases and keystore",
 		Value: DirectoryString(node.DefaultDataDir()),
 	}
-	DBEngineFlag = DirectoryFlag{
+	DBEngineFlag = cli.StringFlag{
 		Name:  "dbengine",
-		Usage: "Database engine for the datadir",
-		Value: DirectoryString(node.DefaultDataDir()),
+		Usage: "Database engine used for store blockchain and statedb(default = leveldb, available: tikv)",
+		Value: "leveldb",
+	}
+	DBTikvPDFlag = cli.StringFlag{
+		Name:  "tikv.pd",
+		Usage: "PD endpoints used for TiKV, multiple value splited by comma",
+		Value: "127.0.0.1:2379",
 	}
 	DirectBroadcastFlag = cli.BoolFlag{
 		Name:  "directbroadcast",
@@ -1282,6 +1287,7 @@ func SetNodeConfig(ctx *cli.Context, cfg *node.Config) {
 	setWS(ctx, cfg)
 	setNodeUserIdent(ctx, cfg)
 	setDataDir(ctx, cfg)
+	setDBEngine(ctx, cfg)
 	setSmartCard(ctx, cfg)
 
 	if ctx.GlobalIsSet(ExternalSignerFlag.Name) {
@@ -1358,6 +1364,15 @@ func setDataDir(ctx *cli.Context, cfg *node.Config) {
 		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "goerli")
 	case ctx.GlobalBool(YoloV3Flag.Name) && cfg.DataDir == node.DefaultDataDir():
 		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "yolo-v3")
+	}
+}
+
+func setDBEngine(ctx *cli.Context, cfg *node.Config) {
+	if ctx.GlobalIsSet(DBEngineFlag.Name) {
+		cfg.DBEngine = ctx.GlobalString(DBEngineFlag.Name)
+	}
+	if ctx.GlobalIsSet(DBTikvPDFlag.Name) {
+		cfg.TikvPD = ctx.GlobalString(DBTikvPDFlag.Name)
 	}
 }
 
