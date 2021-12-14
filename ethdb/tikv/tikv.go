@@ -22,7 +22,7 @@ package tikv
 import (
 	"context"
 	"fmt"
-	"os"
+	"strings"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/ethdb"
@@ -47,16 +47,12 @@ type Database struct {
 
 // New returns a wrapped TiKV object. The namespace is the prefix that the
 // metrics reporting should use for surfacing internal stats.
-func New(file string, namespace string, readonly bool) (*Database, error) {
+func New(pdUrls string) (*Database, error) {
 	logger := log.New("database", "tikv")
-	logCtx := []interface{}{"path", file}
+	logCtx := []interface{}{"pd.urls", pdUrls}
 
-	pdUrl := os.Getenv("BSC_TIKV_PD_URL")
-	if pdUrl == "" {
-		pdUrl = "127.0.0.1:2379"
-	}
 	// Open the db and recover any potential corruptions
-	db, err := txnkv.NewClient([]string{pdUrl})
+	db, err := txnkv.NewClient(strings.Split(pdUrls, ","))
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +61,7 @@ func New(file string, namespace string, readonly bool) (*Database, error) {
 		db:  db,
 		log: logger,
 	}
-	logger.Info("Allocated TiKV", logCtx...)
+	logger.Info("Open TiKV", logCtx...)
 
 	return bdb, nil
 }
