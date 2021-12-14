@@ -72,9 +72,9 @@ func New(file string, namespace string, readonly bool) (*Database, error) {
 	}
 	// Assemble the wrapper with all the registered metrics
 	bdb := &Database{
-		db:       db,
-		log:      logger,
-		quitChan: make(chan chan error),
+		db:  db,
+		log: logger,
+		// quitChan: make(chan chan error),
 	}
 
 	// go bdb.runGC(metricsGCInterval)
