@@ -200,7 +200,7 @@ func (db *Database) runGC(interval time.Duration) {
 		db.log.Info("Badger Size", "LSM", lsm, "VLOG", vlog)
 		if lsm > 1024*1024*8 || vlog > 1024*1024*32 {
 			ierr = db.db.RunValueLogGC(0.5)
-			log.Info("Badger RunValueLogGC", "error", ierr)
+			db.log.Error("Badger RunValueLogGC", "error", ierr)
 		}
 
 		// Sleep a bit, then repeat the stats collection
