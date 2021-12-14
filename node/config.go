@@ -70,6 +70,9 @@ type Config struct {
 	// in memory.
 	DataDir string
 
+	// DBEngine is the backend database engine, default is leveldb
+	DBEngine string `toml:",omitempty"`
+
 	// Configuration of peer-to-peer networking.
 	P2P p2p.Config
 

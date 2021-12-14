@@ -113,6 +113,11 @@ var (
 		Usage: "Data directory for the databases and keystore",
 		Value: DirectoryString(node.DefaultDataDir()),
 	}
+	DBEngineFlag = DirectoryFlag{
+		Name:  "dbengine",
+		Usage: "Database engine for the datadir",
+		Value: DirectoryString(node.DefaultDataDir()),
+	}
 	DirectBroadcastFlag = cli.BoolFlag{
 		Name:  "directbroadcast",
 		Usage: "Enable directly broadcast mined block to all peers",
