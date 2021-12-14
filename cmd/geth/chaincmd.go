@@ -49,6 +49,8 @@ var (
 		ArgsUsage: "<genesisPath>",
 		Flags: []cli.Flag{
 			utils.DataDirFlag,
+			utils.DBEngineFlag,
+			utils.DBTikvPDFlag,
 		},
 		Category: "BLOCKCHAIN COMMANDS",
 		Description: `
