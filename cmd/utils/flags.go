@@ -114,7 +114,7 @@ var (
 		Value: DirectoryString(node.DefaultDataDir()),
 	}
 	DBEngineFlag = cli.StringFlag{
-		Name:  "dbengine",
+		Name:  "db.engine",
 		Usage: "Database engine used for store blockchain and statedb(default = leveldb, available: tikv)",
 		Value: "leveldb",
 	}
