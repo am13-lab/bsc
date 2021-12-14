@@ -115,7 +115,7 @@ var (
 	}
 	DBEngineFlag = cli.StringFlag{
 		Name:  "db.engine",
-		Usage: "Database engine used for store blockchain and statedb(default = leveldb, available: tikv)",
+		Usage: "Database engine used for store blockchain and statedb(default = leveldb, available: badger, tikv)",
 		Value: "leveldb",
 	}
 	DBTikvPDFlag = cli.StringFlag{
