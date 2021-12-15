@@ -100,6 +100,9 @@ func (db *Database) Get(key []byte) ([]byte, error) {
 
 // Put inserts the given value into the key-value store.
 func (db *Database) Put(key []byte, value []byte) error {
+	if len(value) == 0 {
+		return nil
+	}
 	txn, err := db.db.Begin()
 	if err != nil {
 		return err
@@ -214,6 +217,9 @@ func (db *Database) NewBatch() ethdb.Batch {
 
 // Put inserts the given value into the batch for later committing.
 func (b *batch) Put(key, value []byte) error {
+	if len(value) == 0 {
+		return nil
+	}
 	b.size += len(value)
 	b.writes = append(b.writes, keyvalue{key, value, keyTypeVal})
 	return nil
@@ -234,6 +240,9 @@ func (b *batch) ValueSize() int {
 // Write flushes any accumulated data to disk.
 // after Flush, the db.txn is Discard and a new WriteBatch is needed.
 func (b *batch) Write() error {
+	if len(b.writes) == 0 {
+		return nil
+	}
 	txn, err := b.db.Begin()
 	if err != nil {
 		return err
